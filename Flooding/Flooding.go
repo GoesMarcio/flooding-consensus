@@ -1,3 +1,4 @@
+//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
 package Flooding
 
 import (
@@ -59,6 +60,8 @@ func (module Flooding_Module) Send(typeMessage string) {
 	case Prop:
 		prop := Proposal{From: module.Correct_events[0], Number: generateRandom()}
 		module.Proposal(prop)
+	case Decided:
+		fmt.Println("Envia decided")
 	default:
 		fmt.Printf("Outra opcao")
 	}
@@ -140,7 +143,7 @@ func (module Flooding_Module) Proposal(v Proposal) {
 }
 
 func (module Flooding_Module) CheckAndDecide() {
-	if isSubSet(module.Correct_events, module.ReceivedFrom[module.Round]) && !module.Decision {
+	if IsSubSet(module.Correct_events, module.ReceivedFrom[module.Round]) && !module.Decision {
 		fmt.Print()
 	} else {
 		fmt.Print()
@@ -156,7 +159,22 @@ func Union(a, b []Proposal) []Proposal {
 	return a
 }
 
-func isSubSet(conj1 []string, conj2 []string) bool {
+func IsSubSet(a, b []string) bool {
+
+	for _, itema := range a {
+		hasItem := false
+
+		for _, itemb := range b {
+			if itema == itemb {
+				hasItem = true
+			}
+		}
+
+		if !hasItem {
+			return false
+		}
+	}
+
 	return true
 }
 
