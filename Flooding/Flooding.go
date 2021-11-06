@@ -4,6 +4,7 @@ import (
 	"fmt"
 	// "os"
 	"math/rand"
+	"reflect"
 	"time"
 
 	// "log"
@@ -22,7 +23,6 @@ const (
 type Proposal struct {
 	From   string `json:"from"`
 	Number int    `json:"number"`
-	Round  int    `json:"round"`
 }
 
 type Flooding_Module struct {
@@ -57,7 +57,7 @@ func (module Flooding_Module) Init(addresses []string) {
 func (module Flooding_Module) Send(typeMessage string) {
 	switch typeM := typeMessage; typeM {
 	case Prop:
-		prop := Proposal{From: module.Correct_events[0], Number: generateRandom(), Round: module.Round}
+		prop := Proposal{From: module.Correct_events[0], Number: generateRandom()}
 		module.Proposal(prop)
 	default:
 		fmt.Printf("Outra opcao")
@@ -76,12 +76,26 @@ func (module Flooding_Module) Receive() {
 			var data JSON
 			json.Unmarshal([]byte(in.Message), &data)
 
+			round := int(data["round"].(float64))
+
 			switch typeM := data["type"]; typeM {
 			case Prop:
-				// prop := Proposal{From: data[""]}
-				// prop := Proposal{From: module.Correct_events[0], Number: generateRandom(), Round: module.Round}
-				// module.Proposal(prop)
-				fmt.Printf("Prop")
+
+				module.ReceivedFrom[round] = append(module.ReceivedFrom[round], in.From)
+
+				value := reflect.ValueOf(data["data"])
+				var proposals_received = make([]Proposal, value.Len())
+
+				for i := 0; i < value.Len(); i++ {
+					mapped := value.Index((i)).Interface().(map[string]interface{})
+					from := mapped["from"].(string)
+					number := int(mapped["number"].(float64))
+
+					prop_received := Proposal{From: from, Number: number}
+					proposals_received = append(proposals_received, prop_received)
+				}
+
+				module.Proposals[round] = Union(module.Proposals[round], proposals_received)
 
 			default:
 				fmt.Printf("Outra opcao")
@@ -112,6 +126,7 @@ func (module Flooding_Module) Proposal(v Proposal) {
 		data := make(JSON)
 		data["data"] = module.Proposals[module.Round]
 		data["type"] = Prop
+		data["round"] = module.Round
 
 		messageJson, _ := json.Marshal(data)
 		encoded := string(messageJson)
@@ -137,17 +152,7 @@ func (module Flooding_Module) Crash() {
 }
 
 func Union(a, b []Proposal) []Proposal {
-	m := make(map[Proposal]bool)
-
-	for _, item := range a {
-		m[item] = true
-	}
-
-	for _, item := range b {
-		if _, ok := m[item]; !ok {
-			a = append(a, item)
-		}
-	}
+	a = append(a, b...)
 	return a
 }
 
