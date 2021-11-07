@@ -1,17 +1,13 @@
-//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
 package Flooding
 
 import (
+	"encoding/json"
 	"fmt"
-	// "os"
 	"math/rand"
 	"reflect"
 	"sort"
-	"time"
-
-	// "log"
-	"encoding/json"
 	"strings"
+	"time"
 
 	. "../BEB"
 )
@@ -62,14 +58,14 @@ func (module Flooding_Module) Send(typeMessage string) {
 		prop := Proposal{From: module.Correct_events[0], Number: generateRandom()}
 		module.Proposal(prop)
 	case Decided:
-		fmt.Println("Envia decided")
+		module.Decided()
+
 	default:
 		fmt.Printf("Outra opcao")
 	}
 }
 
 func (module Flooding_Module) Receive() {
-	print("ovo recebe")
 	go func() {
 		for {
 			in := <-module.BEB.Ind
@@ -88,7 +84,6 @@ func (module Flooding_Module) Receive() {
 				module.ReceivedFrom[round] = append(module.ReceivedFrom[round], in.From)
 
 				value := reflect.ValueOf(data["data"])
-				// var proposals_received = make([]Proposal, value.Len())
 
 				for i := 0; i < value.Len(); i++ {
 					mapped := value.Index((i)).Interface().(map[string]interface{})
@@ -100,40 +95,26 @@ func (module Flooding_Module) Receive() {
 					module.Proposals[round-1] = append(module.Proposals[round-1], prop_received)
 				}
 
-				// fmt.Println(module.Proposals[round-1])
-				// fmt.Println(module.ReceivedFrom[round])
-				// fmt.Println(module.Proposals[round])
-
 				module.CheckAndDecide()
 
-			case Deliver:
-				fmt.Println()
+			case Decided:
+				fmt.Println(module.Decision)
+				if IsInCorrects(module.Correct_events, in.From) && module.Decision == -1 {
+					module.Decision = int(data["data"].(float64))
+					module.Decided()
+					fmt.Printf("\nReceived from %s decision: %d\n", in.From, module.Decision)
+				}
 
 			default:
 				fmt.Printf("Outra opcao")
 			}
-
-			// var anyJson map[string]interface{}
-			// json.Unmarshal([]byte, &anyJson)
-			// fmt.Printf("Message from %v: %v\n", in.From, in.Message)
-
-			// receivedFrom := module.ReceivedFrom[proposal.Round]
-			// receivedFrom = append(receivedFrom, proposal.From)
-			// module.ReceivedFrom[proposal.Round] = receivedFrom
-
-			// proposals := module.Proposals[proposal.Round]
-			// proposals = append(proposals, proposal)
-			// module.Proposa	ls[proposal.Round] = proposals
-
-			// module.CheckAndDecide()
 		}
 	}()
 }
 
 func (module Flooding_Module) Proposal(v Proposal) {
-	print("ovo envia")
 	go func() {
-		module.Proposals[0] = Union(module.Proposals[0], []Proposal{v})
+		module.Proposals[0] = append(module.Proposals[0], v)
 
 		data := make(JSON)
 		data["data"] = module.Proposals[0]
@@ -144,34 +125,41 @@ func (module Flooding_Module) Proposal(v Proposal) {
 		encoded := string(messageJson)
 
 		req := BestEffortBroadcast_Req_Message{
-			Addresses: module.Correct_events[1:],
+			Addresses: module.Correct_events,
 			Message:   encoded + "§" + module.Correct_events[0]}
 		module.BEB.Req <- req
 	}()
 
 }
 
+func (module Flooding_Module) Decided() {
+	go func() {
+
+		data := make(JSON)
+		data["data"] = module.Decision
+		data["type"] = Decided
+		data["round"] = module.Round
+
+		messageJson, _ := json.Marshal(data)
+		encoded := string(messageJson)
+
+		req := BestEffortBroadcast_Req_Message{
+			Addresses: module.Correct_events[1:],
+			Message:   encoded + "§" + module.Correct_events[0]}
+		module.BEB.Req <- req
+
+	}()
+
+}
+
 func (module Flooding_Module) CheckAndDecide() {
-	fmt.Println(module.Correct_events)
-	fmt.Println(module.ReceivedFrom[module.Round])
+	// fmt.Println(module.Correct_events)
+	// fmt.Println(module.ReceivedFrom[module.Round])
 	if IsSubSet(module.Correct_events, module.ReceivedFrom[module.Round]) && module.Decision == -1 {
 		if IsEqualSet(module.ReceivedFrom[module.Round], module.ReceivedFrom[module.Round-1]) {
-			module.Decision = Min(module.Proposals[module.Round])
-
-			data := make(JSON)
-			data["data"] = module.Decision
-			data["type"] = Decided
-			data["round"] = module.Round
-
-			messageJson, _ := json.Marshal(data)
-			encoded := string(messageJson)
-
-			req := BestEffortBroadcast_Req_Message{
-				Addresses: module.Correct_events[1:],
-				Message:   encoded + "§" + module.Correct_events[0]}
-			module.BEB.Req <- req
-
-			fmt.Println("Decisao: " + string(module.Decision))
+			module.Decision = Min(module.Proposals[module.Round-1])
+			module.Send(Decided)
+			fmt.Printf("\nProcess %s decided: %d\n", module.Correct_events[0], module.Decision)
 
 		} else {
 			module.Round = module.Round + 1
@@ -190,6 +178,15 @@ func (module Flooding_Module) Crash() {
 	//aqui enviar para os outros processos
 }
 
+func IsInCorrects(corrects []string, process string) bool {
+	for _, item := range corrects {
+		if item == process {
+			return true
+		}
+	}
+	return false
+}
+
 func Min(a []Proposal) int {
 	if len(a) == 0 {
 		return -1
@@ -203,13 +200,6 @@ func Min(a []Proposal) int {
 	}
 
 	return min
-}
-
-func Union(a, b []Proposal) []Proposal {
-	for _, item := range b {
-		a = append(a, item)
-	}
-	return a
 }
 
 func IsEqualSet(a, b []string) bool {
@@ -253,17 +243,4 @@ func generateRandom() int {
 	r1 := rand.New(s1)
 
 	return r1.Intn(100)
-}
-
-func encodeJson(proposals []Proposal, typeM string) string {
-	messageJson, _ := json.Marshal(proposals)
-
-	return string(messageJson)
-}
-
-func decodeJson(proposals string) []Proposal {
-	res := []Proposal{}
-	json.Unmarshal([]byte(proposals), &res)
-
-	return res
 }
