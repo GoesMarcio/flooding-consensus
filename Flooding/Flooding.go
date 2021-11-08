@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -48,6 +49,7 @@ func (module Flooding_Module) Init(addresses []string) {
 		Ind: make(chan BestEffortBroadcast_Ind_Message)}
 
 	module.BEB.Init(addresses[0])
+	time.Sleep(4 * time.Second)
 	module.Send(Prop)
 	module.Receive()
 }
@@ -94,15 +96,26 @@ func (module Flooding_Module) Receive() {
 
 					module.Proposals[round-1] = append(module.Proposals[round-1], prop_received)
 				}
+				fmt.Println(time.Now().Format("01/02/06 15:04:05") + " Deliver")
 
+				var procs = ""
+				for _, item := range module.ReceivedFrom[round] {
+					procs = procs + `"` + strings.Split(item, ":")[1] + `":` + strconv.Itoa(module.Round) + `,`
+				}
+				procs = procs[:len(procs)-1]
+
+				proc_id := strings.Split(module.Correct_events[0], ":")[1]
+				fmt.Println(proc_id + ` {` + procs + `}`)
 				module.CheckAndDecide()
 
 			case Decided:
-				fmt.Println(module.Decision)
+				// fmt.Println(module.Decision)
+				// fmt.Println(time.Now().Format("01/02/06 15:04:05") + " Receive Decision")
+
 				if IsInCorrects(module.Correct_events, in.From) && module.Decision == -1 {
 					module.Decision = int(data["data"].(float64))
 					module.Decided()
-					fmt.Printf("\nReceived from %s decision: %d\n", in.From, module.Decision)
+					// fmt.Printf("\nReceived from %s decision: %d\n", in.From, module.Decision)
 				}
 
 			default:
@@ -123,6 +136,10 @@ func (module Flooding_Module) Proposal(v Proposal) {
 
 		messageJson, _ := json.Marshal(data)
 		encoded := string(messageJson)
+		proc_id := strings.Split(module.Correct_events[0], ":")[1]
+
+		fmt.Println(time.Now().Format("01/02/06 15:04:05") + " Propose")
+		fmt.Println(proc_id + ` {"` + proc_id + `":1}`)
 
 		req := BestEffortBroadcast_Req_Message{
 			Addresses: module.Correct_events,
@@ -143,6 +160,11 @@ func (module Flooding_Module) Decided() {
 		messageJson, _ := json.Marshal(data)
 		encoded := string(messageJson)
 
+		proc_id := strings.Split(module.Correct_events[0], ":")[1]
+
+		fmt.Println(time.Now().Format("01/02/06 15:04:05") + " Sent Decision")
+		fmt.Println(proc_id + ` {"` + proc_id + `":1}`)
+
 		req := BestEffortBroadcast_Req_Message{
 			Addresses: module.Correct_events[1:],
 			Message:   encoded + "§" + module.Correct_events[0]}
@@ -159,7 +181,7 @@ func (module Flooding_Module) CheckAndDecide() {
 		if IsEqualSet(module.ReceivedFrom[module.Round], module.ReceivedFrom[module.Round-1]) {
 			module.Decision = Min(module.Proposals[module.Round-1])
 			module.Send(Decided)
-			fmt.Printf("\nProcess %s decided: %d\n", module.Correct_events[0], module.Decision)
+			// fmt.Printf("\nProcess %s decided: %d\n", module.Correct_events[0], module.Decision)
 
 		} else {
 			module.Round = module.Round + 1

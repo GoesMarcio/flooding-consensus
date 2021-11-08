@@ -12,8 +12,9 @@ package BestEffortBroadcast
   Para uso vide ao final do arquivo, ou aplicacao chat.go que usa este
 */
 
-import "fmt"
-import PP2PLink "../PP2PLink"
+import (
+	PP2PLink "../PP2PLink"
+)
 
 type BestEffortBroadcast_Req_Message struct {
 	Addresses []string
@@ -33,7 +34,7 @@ type BestEffortBroadcast_Module struct {
 
 func (module BestEffortBroadcast_Module) Init(address string) {
 
-	fmt.Println("Init BEB!")
+	// fmt.Println("Init BEB!")
 	module.Pp2plink = PP2PLink.PP2PLink{
 		Req: make(chan PP2PLink.PP2PLink_Req_Message),
 		Ind: make(chan PP2PLink.PP2PLink_Ind_Message)}
@@ -61,7 +62,7 @@ func (module BestEffortBroadcast_Module) Broadcast(message BestEffortBroadcast_R
 		msg := BEB2PP2PLink(message)
 		msg.To = message.Addresses[i]
 		module.Pp2plink.Req <- msg
-		fmt.Println("Sent to " + message.Addresses[i])
+		// fmt.Println("Sent to " + message.Addresses[i])
 	}
 }
 
