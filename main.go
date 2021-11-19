@@ -6,6 +6,8 @@ package main
 import (
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 
 	Flooding "./Flooding"
 )
@@ -19,11 +21,26 @@ func main() {
 		return
 	}
 
-	addresses := os.Args[1:] // lista de ip:port dos outros processos
+
+	args := os.Args[1:] // lista de ip:port dos outros processos
+	addresses := []string{}
+	crash := false
+	round := -1
+
+	for i, arg := range args {
+		if arg == "-c" {
+			crash = true
+			round, _ = strconv.Atoi(args[i+1])
+		}
+		if strings.Contains(arg, "."){
+			addresses = append(addresses, arg)
+		}
+	}
+
 
 	module := Flooding.Flooding_Module{}
 
-	module.Init(addresses)
+	module.Init(addresses, crash, round)
 
 	blq := make(chan int)
 	<-blq

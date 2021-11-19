@@ -73,20 +73,20 @@ func (module *PP2PLink) Start(address string) {
 				// e passa para cima
 				for {
 					if err != nil {
-						fmt.Println(err)
+						// fmt.Println(err)
 						continue
 					}
 					bufTam := make([]byte, 4) // le tamanho da mensagem
 					_, err := io.ReadFull(conn, bufTam)
 					if err != nil {
-						fmt.Println(err)
+						// fmt.Println(err)
 						continue
 					}
 					tam, err := strconv.Atoi(string(bufTam))
 					bufMsg := make([]byte, tam)        // declara buffer do tamanho exato
 					_, err = io.ReadFull(conn, bufMsg) // le do tamanho do buffer ou da erro
 					if err != nil {
-						fmt.Println(err)
+						// fmt.Println(err)
 						continue
 					}
 					msg := PP2PLink_Ind_Message{
@@ -119,7 +119,7 @@ func (module *PP2PLink) Send(message PP2PLink_Req_Message) {
 	} else { // se nao tiver, abre e guarda na cache
 		conn, err = net.Dial("tcp", message.To)
 		if err != nil {
-			fmt.Println(err)
+			// fmt.Println(err)
 			return
 		}
 		module.Cache[message.To] = conn
