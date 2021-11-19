@@ -33,18 +33,19 @@ type Flooding_Module struct {
 	ReceivedFrom   [][]string
 	Proposals      [][]Proposal
 	BEB            BestEffortBroadcast_Module
-	CrashBool      bool
 	FailRound      int
 	Clock          int
 }
 
 type JSON map[string]interface{}
 
-func (module Flooding_Module) Init(addresses []string, crash bool, failRound int) {
+func (module Flooding_Module) Init(addresses []string, failRound int) {
 	module.Correct_events = addresses
-	n_proccess := len(module.Correct_events)
 	module.Round = 1
 	module.Decision = -1
+
+	n_proccess := len(module.Correct_events)
+
 	module.ReceivedFrom = make([][]string, n_proccess)
 	module.Proposals = make([][]Proposal, n_proccess)
 	module.ReceivedFrom[0] = module.Correct_events
@@ -53,15 +54,22 @@ func (module Flooding_Module) Init(addresses []string, crash bool, failRound int
 		Req: make(chan BestEffortBroadcast_Req_Message),
 		Ind: make(chan BestEffortBroadcast_Ind_Message)}
 	
-	module.CrashBool = crash
 	module.FailRound = failRound
 	module.Clock = 1
 
 	module.BEB.Init(addresses[0])
-	time.Sleep(4 * time.Second)
+	time.Sleep(2 * time.Second)
+	
+	module.Start()
+}
 
-	proc_id := strings.Split(module.Correct_events[0], ":")[1]
-	printClock(proc_id, module.Clock, nil)
+func (module Flooding_Module) Start(){
+
+	my_addr := module.Correct_events[0]
+	module.ReceivedFrom[1] = append(module.ReceivedFrom[1], my_addr)
+	
+	proc_id := strings.Split(my_addr, ":")[1]
+	printClock(proc_id, module.Clock, nil, "Generating propose (1)")
 
 	module.Clock = module.Clock + 1
 	module.Send(Prop)
@@ -97,7 +105,6 @@ func (module Flooding_Module) Receive() {
 
 			switch typeM := data["type"]; typeM {
 			case Prop:
-				// fmt.Println("recebi uma proposta de: ", in.From)
 				module.ReceivedFrom[round] = append(module.ReceivedFrom[round], in.From)
 
 				value := reflect.ValueOf(data["data"])
@@ -112,28 +119,19 @@ func (module Flooding_Module) Receive() {
 					module.Proposals[round-1] = append(module.Proposals[round-1], prop_received)
 				}
 
-				// fmt.Println("o cara q me mandou ta no clock", data["clock"])
-
-				// printClock(proc_id, module.Clock, nil)
-
-				// var procs = ""
-				// for _, item := range module.ReceivedFrom[round] {
-				// 	procs = procs + `"` + strings.Split(item, ":")[1] + `":` + strconv.Itoa(module.Round) + `,`
-				// }
-				// procs = procs[:len(procs)-1]
-
 				proc_id := strings.Split(module.Correct_events[0], ":")[1]
 				clock := strconv.Itoa(int(data["clock"].(float64)))
-				sender_id := []string{strings.Split(in.From, ":")[1] + " : " + clock}
-				// fmt.Println(proc_id + ` {` + procs + `}`)
-				printClock(proc_id, module.Clock, sender_id)
+				sender_id := strings.Split(in.From, ":")[1]
+				sender_clock := []string{`"`+sender_id + `":"` + clock +`"`}
+				message := "Received proposals from "+ sender_id +" ("+ strconv.Itoa(round) + ")"
 
 				module.Clock = module.Clock + 1
+				printClock(proc_id, module.Clock, sender_clock, message)
 
 				module.CheckAndDecide()
 
 			case Decided:
-				fmt.Println("recebi uma decisao de: ", in.From)
+				// fmt.Println("recebi uma decisao de: ", in.From)
 				// fmt.Println(module.Decision)
 				// fmt.Println(time.Now().Format("01/02/06 15:04:05") + " Receive Decision")
 
@@ -152,8 +150,6 @@ func (module Flooding_Module) Receive() {
 						break
 					}
 				}
-
-				// fmt.Println(module.Correct_events)
 
 			default:
 				fmt.Printf("Outra opcao")
@@ -176,22 +172,21 @@ func (module Flooding_Module) Proposal(v Proposal) {
 		encoded := string(messageJson)
 		proc_id := strings.Split(module.Correct_events[0], ":")[1]
 		
-		printClock(proc_id, module.Clock, nil)
-		
+		printClock(proc_id, module.Clock, nil, "Sending proposals (1)")
 		module.Clock = module.Clock + 1
-
-		addresses := []string{}
-		if module.CrashBool && module.FailRound == module.Round{
+		
+		addresses := module.Correct_events[1:]
+		
+		if module.FailRound == module.Round{
 			addresses = []string{module.Correct_events[1]}
-		}else{
-			addresses = module.Correct_events
 		}
+
 		req := BestEffortBroadcast_Req_Message{
 			Addresses: addresses,
 			Message:   encoded + "§" + module.Correct_events[0]}
 		module.BEB.Req <- req
 
-		if module.CrashBool && module.FailRound == module.Round{
+		if module.FailRound == module.Round{
 			module.Crash()
 		}
 	}()
@@ -211,8 +206,9 @@ func (module Flooding_Module) Decided() {
 		encoded := string(messageJson)
 
 		proc_id := strings.Split(module.Correct_events[0], ":")[1]
+		message := "Decided and send (" + strconv.Itoa(module.Round) + ")"
 
-		printClock(proc_id, module.Clock, nil)
+		printClock(proc_id, module.Clock, nil, message)
 		module.Clock = module.Clock + 1
 
 
@@ -249,7 +245,6 @@ func (module Flooding_Module) CheckAndDecide() {
 
 func (module Flooding_Module) Crash() {
 	go func() {
-		fmt.Println("Crashei")
 
 		data := make(JSON)
 		data["data"] = ""
@@ -344,15 +339,15 @@ func generateRandom() int {
 }
 
 
-func printClock(port string, clock int, clocks_arr []string){
+func printClock(port string, clock int, clocks_arr []string, event string){
 	
 	clocks := `{"` + port + `":`+strconv.Itoa(clock)+`,`
 	if clocks_arr != nil{
 		for _, sender := range clocks_arr{
-			clocks += sender + ","
+			clocks += sender + `,`
 		}
 	}
 	clocks = clocks[:len(clocks)-1]
 	clocks += `}`
-	fmt.Println("[" + time.Now().Format("01/02/06 15:04:05.000") + "] [" + port + "] "+clocks)
+	fmt.Println("[" + time.Now().Format("01/02/06 15:04:05.000") + "] [" + port + "] "+clocks+" "+port+" "+event)
 }

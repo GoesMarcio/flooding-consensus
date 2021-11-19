@@ -24,12 +24,10 @@ func main() {
 
 	args := os.Args[1:] // lista de ip:port dos outros processos
 	addresses := []string{}
-	crash := false
 	round := -1
 
 	for i, arg := range args {
 		if arg == "-c" {
-			crash = true
 			round, _ = strconv.Atoi(args[i+1])
 		}
 		if strings.Contains(arg, "."){
@@ -40,7 +38,7 @@ func main() {
 
 	module := Flooding.Flooding_Module{}
 
-	module.Init(addresses, crash, round)
+	module.Init(addresses, round)
 
 	blq := make(chan int)
 	<-blq
