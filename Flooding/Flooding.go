@@ -4,12 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"os"
 	"reflect"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
-	"os"
 
 	. "../BEB"
 )
@@ -21,6 +21,12 @@ const (
 	Crash   = "crash"
 )
 
+var (
+	Decision = -1
+	Clock    = 0
+	Round    = 1
+)
+
 type Proposal struct {
 	From   string `json:"from"`
 	Number int    `json:"number"`
@@ -28,21 +34,16 @@ type Proposal struct {
 
 type Flooding_Module struct {
 	Correct_events []string
-	Round          int
-	Decision       int
 	ReceivedFrom   [][]string
 	Proposals      [][]Proposal
 	BEB            BestEffortBroadcast_Module
 	FailRound      int
-	Clock          int
 }
 
 type JSON map[string]interface{}
 
 func (module Flooding_Module) Init(addresses []string, failRound int) {
 	module.Correct_events = addresses
-	module.Round = 1
-	module.Decision = -1
 
 	n_proccess := len(module.Correct_events)
 
@@ -53,27 +54,26 @@ func (module Flooding_Module) Init(addresses []string, failRound int) {
 	module.BEB = BestEffortBroadcast_Module{
 		Req: make(chan BestEffortBroadcast_Req_Message),
 		Ind: make(chan BestEffortBroadcast_Ind_Message)}
-	
+
 	module.FailRound = failRound
-	module.Clock = 1
 
 	module.BEB.Init(addresses[0])
-	time.Sleep(2 * time.Second)
-	
+	time.Sleep(4 * time.Second)
+
 	module.Start()
 }
 
-func (module Flooding_Module) Start(){
+func (module Flooding_Module) Start() {
 
 	my_addr := module.Correct_events[0]
 	module.ReceivedFrom[1] = append(module.ReceivedFrom[1], my_addr)
-	
-	proc_id := strings.Split(my_addr, ":")[1]
-	printClock(proc_id, module.Clock, nil, "Generating propose (1)")
 
-	module.Clock = module.Clock + 1
-	module.Send(Prop)
+	proc_id := strings.Split(my_addr, ":")[1]
+	Clock = Clock + 1
+	printClock(proc_id, Clock, nil, "Generating propose (1)")
+
 	module.Receive()
+	module.Send(Prop)
 }
 
 func (module Flooding_Module) Send(typeMessage string) {
@@ -94,14 +94,23 @@ func (module Flooding_Module) Receive() {
 	go func() {
 		for {
 			in := <-module.BEB.Ind
+
+			if module.FailRound != -1 && module.FailRound == Round {
+				return
+			}
+
 			message := strings.Split(in.Message, "§")
 			in.From = message[1]
 			in.Message = message[0]
-
 			var data JSON
 			json.Unmarshal([]byte(in.Message), &data)
 
 			round := int(data["round"].(float64))
+
+			proc_id := strings.Split(module.Correct_events[0], ":")[1]
+			clock := strconv.Itoa(int(data["clock"].(float64)))
+			sender_id := strings.Split(in.From, ":")[1]
+			sender_clock := []string{`"` + sender_id + `":"` + clock + `"`}
 
 			switch typeM := data["type"]; typeM {
 			case Prop:
@@ -119,31 +128,24 @@ func (module Flooding_Module) Receive() {
 					module.Proposals[round-1] = append(module.Proposals[round-1], prop_received)
 				}
 
-				proc_id := strings.Split(module.Correct_events[0], ":")[1]
-				clock := strconv.Itoa(int(data["clock"].(float64)))
-				sender_id := strings.Split(in.From, ":")[1]
-				sender_clock := []string{`"`+sender_id + `":"` + clock +`"`}
-				message := "Received proposals from "+ sender_id +" ("+ strconv.Itoa(round) + ")"
+				message := "Received proposals from " + sender_id + " (" + strconv.Itoa(Round) + ")"
 
-				module.Clock = module.Clock + 1
-				printClock(proc_id, module.Clock, sender_clock, message)
+				Clock = Clock + 1
+				printClock(proc_id, Clock, sender_clock, message)
 
 				module.CheckAndDecide()
 
 			case Decided:
-				// fmt.Println("recebi uma decisao de: ", in.From)
-				// fmt.Println(module.Decision)
-				// fmt.Println(time.Now().Format("01/02/06 15:04:05") + " Receive Decision")
+				message := "Received decided from " + sender_id + " (" + strconv.Itoa(Round) + ")"
+				Clock = Clock + 1
+				printClock(proc_id, Clock, sender_clock, message)
 
-				if IsInCorrects(module.Correct_events, in.From) && module.Decision == -1 {
-					module.Decision = int(data["data"].(float64))
+				if IsInCorrects(module.Correct_events, in.From) && Decision == -1 {
+					Decision = int(data["data"].(float64))
 					module.Decided()
-					// fmt.Printf("\nReceived from %s decision: %d\n", in.From, module.Decision)
 				}
-			
-			case Crash:
-				fmt.Println("recebi um crash de: ", in.From)
 
+			case Crash:
 				for i, v := range module.Correct_events {
 					if v == in.From {
 						module.Correct_events = append(module.Correct_events[:i], module.Correct_events[i+1:]...)
@@ -159,116 +161,124 @@ func (module Flooding_Module) Receive() {
 }
 
 func (module Flooding_Module) Proposal(v Proposal) {
-	go func() {
-		module.Proposals[0] = append(module.Proposals[0], v)
-		
-		data := make(JSON)
-		data["data"] = module.Proposals[0]
-		data["clock"] = module.Clock
-		data["type"] = Prop
-		data["round"] = module.Round
-		
-		messageJson, _ := json.Marshal(data)
-		encoded := string(messageJson)
-		proc_id := strings.Split(module.Correct_events[0], ":")[1]
-		
-		printClock(proc_id, module.Clock, nil, "Sending proposals (1)")
-		module.Clock = module.Clock + 1
-		
-		addresses := module.Correct_events[1:]
-		
-		if module.FailRound == module.Round{
-			addresses = []string{module.Correct_events[1]}
-		}
+	module.Proposals[0] = append(module.Proposals[0], v)
 
-		req := BestEffortBroadcast_Req_Message{
-			Addresses: addresses,
-			Message:   encoded + "§" + module.Correct_events[0]}
-		module.BEB.Req <- req
+	Clock = Clock + 1
 
-		if module.FailRound == module.Round{
-			module.Crash()
-		}
-	}()
+	data := make(JSON)
+	data["data"] = module.Proposals[0]
+	data["clock"] = Clock
+	data["type"] = Prop
+	data["round"] = Round
 
+	messageJson, _ := json.Marshal(data)
+	encoded := string(messageJson)
+	proc_id := strings.Split(module.Correct_events[0], ":")[1]
+
+	printClock(proc_id, Clock, nil, "Sending proposals (1)")
+
+	addresses := module.Correct_events[1:]
+
+	if module.FailRound == Round {
+		addresses = []string{module.Correct_events[1]}
+	}
+
+	req := BestEffortBroadcast_Req_Message{
+		Addresses: addresses,
+		Message:   encoded + "§" + module.Correct_events[0]}
+	module.BEB.Req <- req
+
+	if module.FailRound == Round {
+		module.Crash()
+	}
 }
 
 func (module Flooding_Module) Decided() {
+
+	Clock = Clock + 1
+
+	data := make(JSON)
+	data["data"] = Decision
+	data["clock"] = Clock
+	data["type"] = Decided
+	data["round"] = Round
+
+	messageJson, _ := json.Marshal(data)
+	encoded := string(messageJson)
+
+	proc_id := strings.Split(module.Correct_events[0], ":")[1]
+	message := "Send decision (" + strconv.Itoa(Round) + ")"
+
+	printClock(proc_id, Clock, nil, message)
+
 	go func() {
-
-		data := make(JSON)
-		data["data"] = module.Decision
-		data["clock"] = module.Clock
-		data["type"] = Decided
-		data["round"] = module.Round
-
-		messageJson, _ := json.Marshal(data)
-		encoded := string(messageJson)
-
-		proc_id := strings.Split(module.Correct_events[0], ":")[1]
-		message := "Decided and send (" + strconv.Itoa(module.Round) + ")"
-
-		printClock(proc_id, module.Clock, nil, message)
-		module.Clock = module.Clock + 1
-
-
 		req := BestEffortBroadcast_Req_Message{
 			Addresses: module.Correct_events[1:],
 			Message:   encoded + "§" + module.Correct_events[0]}
-		module.BEB.Req <- req
 
+		module.BEB.Req <- req
 	}()
 
 }
 
 func (module Flooding_Module) CheckAndDecide() {
-	// fmt.Println(module.Correct_events)
-	// fmt.Println(module.ReceivedFrom[module.Round])
-	if IsSubSet(module.Correct_events, module.ReceivedFrom[module.Round]) && module.Decision == -1 {
-		if IsEqualSet(module.ReceivedFrom[module.Round], module.ReceivedFrom[module.Round-1]) {
-			module.Decision = Min(module.Proposals[module.Round-1])
+	if IsSubSet(module.Correct_events, module.ReceivedFrom[Round]) && Decision == -1 {
+		if IsEqualSet(module.ReceivedFrom[Round], module.ReceivedFrom[Round-1]) {
+			Decision = Min(module.Proposals[Round-1])
+			proc_id := strings.Split(module.Correct_events[0], ":")[1]
+			Clock = Clock + 1
+			printClock(proc_id, Clock, nil, "Decided ("+strconv.Itoa(Round)+")")
 			module.Send(Decided)
-			// fmt.Printf("\nProcess %s decided: %d\n", module.Correct_events[0], module.Decision)
 
 		} else {
-			module.Round = module.Round + 1
+			Clock = Clock + 1
+			Round = Round + 1
+
 			data := make(JSON)
-			data["data"] = module.Proposals
+			data["data"] = module.Proposals[Round-2]
 			data["type"] = Prop
-			data["round"] = module.Round
-			
-			fmt.Println("cheguei aqui cpx", module.Round)
+			data["round"] = Round
+			data["clock"] = Clock
+
+			messageJson, _ := json.Marshal(data)
+			encoded := string(messageJson)
+			proc_id := strings.Split(module.Correct_events[0], ":")[1]
+
+			printClock(proc_id, Clock, nil, "Sending proposals ("+strconv.Itoa(Round)+")")
+
+			req := BestEffortBroadcast_Req_Message{
+				Addresses: module.Correct_events[1:],
+				Message:   encoded + "§" + module.Correct_events[0]}
+			module.BEB.Req <- req
 		}
 
 	}
 }
 
 func (module Flooding_Module) Crash() {
-	go func() {
 
-		data := make(JSON)
-		data["data"] = ""
-		data["type"] = Crash
-		data["round"] = module.Round
+	Clock = Clock + 1
 
-		messageJson, _ := json.Marshal(data)
-		encoded := string(messageJson)
-		// proc_id := strings.Split(module.Correct_events[0], ":")[1]
+	data := make(JSON)
+	data["data"] = ""
+	data["type"] = Crash
+	data["round"] = Round
+	data["clock"] = Clock
 
-		// fmt.Println(time.Now().Format("01/02/06 15:04:05") + " Propose")
-		// fmt.Println(proc_id + ` {"` + proc_id + `":1}`)
+	messageJson, _ := json.Marshal(data)
+	encoded := string(messageJson)
+	proc_id := strings.Split(module.Correct_events[0], ":")[1]
+	message := "Crashed (" + strconv.Itoa(Round) + ")"
 
-		req := BestEffortBroadcast_Req_Message{
-			Addresses: module.Correct_events[1:],
-			Message:   encoded + "§" + module.Correct_events[0]}
-		module.BEB.Req <- req
+	printClock(proc_id, Clock, nil, message)
 
-		fmt.Println("enviando meu crash pra: ", module.Correct_events[1:])
-		
-		time.Sleep(1 * time.Second)
+	req := BestEffortBroadcast_Req_Message{
+		Addresses: module.Correct_events[1:],
+		Message:   encoded + "§" + module.Correct_events[0]}
+	module.BEB.Req <- req
 
-		os.Exit(0)
-	}()
+	time.Sleep(1 * time.Second)
+	os.Exit(0)
 }
 
 func IsInCorrects(corrects []string, process string) bool {
@@ -338,16 +348,15 @@ func generateRandom() int {
 	return r1.Intn(100)
 }
 
+func printClock(port string, clock int, clocks_arr []string, event string) {
 
-func printClock(port string, clock int, clocks_arr []string, event string){
-	
-	clocks := `{"` + port + `":`+strconv.Itoa(clock)+`,`
-	if clocks_arr != nil{
-		for _, sender := range clocks_arr{
+	clocks := `{"` + port + `":` + strconv.Itoa(clock) + `,`
+	if clocks_arr != nil {
+		for _, sender := range clocks_arr {
 			clocks += sender + `,`
 		}
 	}
 	clocks = clocks[:len(clocks)-1]
 	clocks += `}`
-	fmt.Println("[" + time.Now().Format("01/02/06 15:04:05.000") + "] [" + port + "] "+clocks+" "+port+" "+event)
+	fmt.Println("[" + time.Now().Format("01/02/06 15:04:05.0000") + "] [" + port + "] " + clocks + " " + port + " " + event)
 }
