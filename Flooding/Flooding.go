@@ -25,6 +25,7 @@ var (
 	Decision = -1
 	Clock    = 0
 	Round    = 1
+	Proccess = []string{}
 )
 
 type Proposal struct {
@@ -64,9 +65,9 @@ func (module Flooding_Module) Init(addresses []string, failRound int) {
 }
 
 func (module Flooding_Module) Start() {
-
 	my_addr := module.Correct_events[0]
 	module.ReceivedFrom[1] = append(module.ReceivedFrom[1], my_addr)
+
 
 	proc_id := strings.Split(my_addr, ":")[1]
 	Clock = Clock + 1
@@ -114,19 +115,22 @@ func (module Flooding_Module) Receive() {
 
 			switch typeM := data["type"]; typeM {
 			case Prop:
-				module.ReceivedFrom[round] = append(module.ReceivedFrom[round], in.From)
-
+				if !InSet(in.From, module.ReceivedFrom[round]){
+					module.ReceivedFrom[round] = append(module.ReceivedFrom[round], in.From)
+				}
+				
 				value := reflect.ValueOf(data["data"])
-
+				
 				for i := 0; i < value.Len(); i++ {
 					mapped := value.Index((i)).Interface().(map[string]interface{})
 					from := mapped["from"].(string)
 					number := int(mapped["number"].(float64))
-
+					
 					prop_received := Proposal{From: from, Number: number}
-
+					
 					module.Proposals[round-1] = append(module.Proposals[round-1], prop_received)
 				}
+
 
 				message := "Received proposals from " + sender_id + " (" + strconv.Itoa(Round) + ")"
 
@@ -145,6 +149,29 @@ func (module Flooding_Module) Receive() {
 					module.Decided()
 				}
 
+				
+				if !InSet(in.From, Proccess) {
+					Proccess = append(Proccess, in.From)
+				}
+
+				if IsSubSet(Proccess, module.Correct_events) && len(Proccess) == len(module.Correct_events) - 1 {
+
+					Decision = -1
+					Round    = 1
+					Proccess = []string{}
+
+					n_proccess := len(module.Correct_events)
+					module.ReceivedFrom = make([][]string, n_proccess)
+					module.Proposals = make([][]Proposal, n_proccess)
+					module.ReceivedFrom[0] = module.Correct_events
+
+					time.Sleep(4 * time.Second)
+
+					module.Start()
+
+					break;
+				}
+
 			case Crash:
 				for i, v := range module.Correct_events {
 					if v == in.From {
@@ -157,6 +184,7 @@ func (module Flooding_Module) Receive() {
 				fmt.Printf("Outra opcao")
 			}
 		}
+
 	}()
 }
 
@@ -339,6 +367,16 @@ func IsSubSet(a, b []string) bool {
 	}
 
 	return true
+}
+
+func InSet(a string, b []string) bool {
+	for _, itemb := range b {
+		if a == itemb {
+			return true
+		}
+	}
+
+	return false
 }
 
 func generateRandom() int {
